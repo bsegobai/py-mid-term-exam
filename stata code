@@ -1,0 +1,76 @@
+***Import hand-collected transaction-level data, clean it, add additional data
+{
+**Import data
+import excel "$IFF\Data\nigeria_data.xlsx", sheet("Sheet1") firstrow clear
+*Clean some fields
+replace Transaction = "TangibleGoods" if Transaction == "Tangible goods"
+replace Transaction = "ServiceFees" if Transaction == "Service/Fees"
+*Generate a few new variables
+gen TypeTransaction = Type + Transaction /* Needed for reshape */
+gen tax=Value*wht_etr /* Hypothetical tax payment */
+*Transform from NGN to USD
+gen value_usdmn=Value*0.0024/1000000
+gen tax_usdmn=tax*0.0024/1000000
+gen revenue_usdmn=revenue*0.0024/1000000
+*Label variables
+label var value_usdmn "Value of transaction"
+label var tax_usdmn "Hypothetical tax payment"
+label var etr "Applicable ETR in partner country"
+*Merge in additional data
+rename country_subs country_iso3
+joinby country_iso3 using "$IFF\Data\iso codes.dta", unmatched(master)
+drop _merge
+*Save transaction-level data 
+save "$IFF\Data\transaction-level data final.dta", replace
+*Move to company level, starting from transaction-level data
+use "$IFF\Data\transaction-level data final.dta", clear
+*Clean a bit
+drop A Type Transaction
+*Generate summed variables for types of transactions and company
+bysort TypeTransaction company: egen sum_tax_usdmn=sum(tax_usdmn)
+bysort TypeTransaction company: egen sum_value_usdmn=sum(value_usdmn)
+*Drop unnecessary observations
+duplicates drop TypeTransaction company, force
+*Only keep the summed variables
+keep company revenue_usdmn gross_profit TypeTransaction tax_usdmn value_usdmn 
+order company revenue_usdmn gross_profit TypeTransaction tax_usdmn value_usdmn 
+*Reshape to company-level
+reshape wide tax_usdmn value_usdmn, i(company) j(TypeTransaction) string
+*Generate company-level variables
+gen profit_margin = gross_profit/revenue
+gen log_gross_profit=log(gross_profit)
+gen log_tax_usdmnCostTotal=log(tax_usdmnCostTotal)
+gen log_tax_usdmnIncomeTotal=log(tax_usdmnIncomeTotal)
+gen log_value_usdmnCostTotal=log(value_usdmnCostTotal)
+gen log_value_usdmnIncomeTotal=log(value_usdmnIncomeTotal)
+gen log_revenue_usdmn=log(revenue_usdmn)
+*Save company-level data
+save "$IFF\Data\company-level data final.dta", replace
+}
+*/
+
+/*
+est clear
+label var log_gross_profit "Log of reported profit"
+label var tax_usdmnCostTotal "Hypothetical tax on costs"
+label var value_usdmnCostTotal "Total costs"
+label var revenue "Revenue"
+label var tax_usdmnIncomeTotal "Hypothetical tax on income"
+label var value_usdmnIncomeTotal "Total income"
+eststo: reg log_gross_profit value_usdmnCostTotal, vce(robust)
+eststo: reg log_gross_profit value_usdmnCostTotal tax_usdmnCostTotal, vce(robust)
+eststo: reg log_gross_profit value_usdmnCostTotal tax_usdmnCostTotal revenue, vce(robust)
+eststo: reg log_gross_profit value_usdmnIncomeTotal, vce(robust)
+eststo: reg log_gross_profit value_usdmnIncomeTotal tax_usdmnIncomeTotal, vce(robust)
+eststo: reg log_gross_profit value_usdmnIncomeTotal tax_usdmnIncomeTotal revenue, vce(robust)
+global esttabOptions "replace f b(3) se(3) r2 nomtitle label star(* 0.10 ** 0.05 *** 0.01) booktabs alignment(D{.}{.}{-1}) substitute(\_ _) order(value_usdmnCostTotal value_usdmnIncomeTotal tax_usdmnCostTotal tax_usdmnIncomeTotal revenue)"
+esttab using "$Overleaf/tab/tab_reg1.tex", $esttabOptions
+*/
+
+
+/*
+scatter log_gross_profit log_taxIncomeTotal 
+scatter log_gross_profit log_taxCostTotal
+graph export "$overleaf_github/img/scatter_profit_taxcost.png", replace
+*/
+}
